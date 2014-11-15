@@ -122,7 +122,11 @@ run chan reportProgress_ c formatter specs = do
       queueExample (reverse rGroups) e
 
     queueExample :: [String] -> (String, Maybe Location, ProgressCallback -> FormatResult -> IO (FormatM ())) -> IO ()
-    queueExample groups (requirement, loc, e) = e reportProgress formatResult >>= defer
+    queueExample groups (requirement, loc, e) = do
+      x <- e reportProgress formatResult
+      defer $ do
+        exampleStarted formatter path
+        x
       where
         path :: Path
         path = (groups, requirement)

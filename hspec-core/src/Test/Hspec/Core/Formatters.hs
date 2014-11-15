@@ -92,6 +92,7 @@ import Test.Hspec.Core.Formatters.Internal (
 silent :: Formatter
 silent = Formatter {
   headerFormatter     = return ()
+, exampleStarted      = \_ -> return ()
 , exampleGroupStarted = \_ _ -> return ()
 , exampleGroupDone    = return ()
 , exampleProgress     = \_ _ _ -> return ()
@@ -116,12 +117,21 @@ specdoc = silent {
     hPutStr h (formatProgress p)
     hFlush h
 
-, exampleSucceeded = \(nesting, requirement) -> withSuccessColor $ do
-    writeLine $ indentationFor nesting ++ requirement
+, exampleStarted = \(nesting, requirement) -> do
+    write $ indentationFor nesting ++ requirement ++ " [ ]"
 
-, exampleFailed = \(nesting, requirement) _ -> withFailColor $ do
-    n <- getFailCount
-    writeLine $ indentationFor nesting ++ requirement ++ " FAILED [" ++ show n ++ "]"
+, exampleSucceeded = \(nesting, requirement) -> do
+    -- write $ indentationFor nesting ++ requirement ++ " "
+    write "\b\b\b["
+    withSuccessColor $ write "✔"
+    write "]"
+    writeLine "              "
+
+, exampleFailed = \(nesting, requirement) _ -> do
+    write "\b\b\b["
+    withFailColor $ write "✘"
+    write "]"
+    writeLine "              "
 
 , examplePending = \(nesting, requirement) reason -> withPendingColor $ do
     writeLine $ indentationFor nesting ++ requirement ++ "\n     # PENDING: " ++ fromMaybe "No reason given" reason
@@ -131,9 +141,11 @@ specdoc = silent {
 , footerFormatter = defaultFooter
 } where
     indentationFor nesting = replicate (length nesting * 2) ' '
-    formatProgress (current, total)
-      | total == 0 = show current ++ "\r"
-      | otherwise  = show current ++ "/" ++ show total ++ "\r"
+    formatProgress (current, total) = foo ++ replicate (length foo) '\b'
+      where
+        foo
+          | total == 0 = show current
+          | otherwise  = "[" ++ show current ++ "/" ++ show total ++ "]"
 
 
 progress :: Formatter

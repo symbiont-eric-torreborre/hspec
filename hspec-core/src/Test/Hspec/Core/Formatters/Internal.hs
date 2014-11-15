@@ -144,6 +144,9 @@ data Formatter = Formatter {
 -- The given number indicates the position within the parent group.
 , exampleGroupStarted :: [String] -> String -> FormatM ()
 
+-- FIXME: move Path (and also nesting, etc. into the monad)
+, exampleStarted      :: Path -> FormatM ()
+
 , exampleGroupDone    :: FormatM ()
 
 -- | used to notify the progress of the currently evaluated example
