@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-} -- FIXME: needed now, breaking change
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Stability: provisional
@@ -112,6 +114,7 @@ import           Test.Hspec.Core.Runner.PrintSlowSpecItems
 import           Test.Hspec.Core.Runner.Eval hiding (Tree(..))
 import qualified Test.Hspec.Core.Runner.Eval as Eval
 import           Test.Hspec.Core.Runner.Result
+import           Test.Hspec.Core.Example (AroundAction)  -- FIXME
 
 applyFilterPredicates :: Config -> [Tree c EvalItem] -> [Tree c EvalItem]
 applyFilterPredicates c = filterForestWithLabels p
@@ -258,10 +261,12 @@ runSpecForest spec c_ = do
 runSpecForest_ :: Config -> [SpecTree ()] -> IO SpecResult
 runSpecForest_ config spec = runEvalTree config (specToEvalForest config spec)
 
-failFocused :: Item a -> Item a
+failFocused :: forall a. Item a -> Item a
 failFocused item = item {itemExample = example}
   where
     failure = Failure Nothing (Reason "item is focused; failing due to --fail-on-focused")
+
+    example :: Params -> AroundAction a -> ProgressCallback -> IO Result -- FIXME: This is now needed => breaking changes
     example
       | itemIsFocused item = \ params hook p -> do
           Result info status <- itemExample item params hook p
@@ -374,7 +379,7 @@ toEvalItemForest params = bimapForest withUnit toEvalItem . filterForest itemIsF
     toEvalItem :: Item () -> EvalItem
     toEvalItem (Item requirement loc isParallelizable _isFocused e) = EvalItem requirement loc (fromMaybe False isParallelizable) (e params withUnit)
 
-    withUnit :: ActionWith () -> IO ()
+    withUnit :: AroundAction ()
     withUnit action = action ()
 
 dumpFailureReport :: Config -> Integer -> QC.Args -> [Path] -> IO ()
