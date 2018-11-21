@@ -38,7 +38,7 @@ spec = do
   describe "xdescribe" $ do
     it "creates a tree of pending spec items" $ do
       [Node _ [Leaf item]] <- runSpecM (H.xdescribe "" $ H.it "whatever" True)
-      r <- itemExample item defaultParams ($ ()) noOpProgressCallback
+      r <- itemExample item mempty ($ ()) noOpProgressCallback
       r `shouldBe` Result "" (Pending Nothing Nothing)
 
   describe "it" $ do
@@ -48,7 +48,7 @@ spec = do
 
     it "takes an example of that behavior" $ do
       [Leaf item] <- runSpecM (H.it "whatever" True)
-      r <- itemExample item defaultParams ($ ()) noOpProgressCallback
+      r <- itemExample item mempty ($ ()) noOpProgressCallback
       r `shouldBe` Result "" Success
 
     it "adds source locations" $ do
@@ -73,7 +73,7 @@ spec = do
   describe "xit" $ do
     it "creates a pending spec item" $ do
       [Leaf item] <- runSpecM (H.xit "whatever" True)
-      r <- itemExample item defaultParams ($ ()) noOpProgressCallback
+      r <- itemExample item mempty ($ ()) noOpProgressCallback
       r `shouldBe` Result "" (Pending Nothing Nothing)
 
   describe "pending" $ do

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Stability: provisional
@@ -26,13 +27,15 @@ import           Prelude ()
 import           Test.Hspec.Core.Compat
 
 import           Data.Maybe
+import           Data.Foldable (toList)
+import qualified Data.Map as Map
 import           System.IO
 import           System.Environment (getProgName, getArgs, withArgs)
 import           System.Exit
 import qualified Control.Exception as E
 
 import           System.Console.ANSI (hHideCursor, hShowCursor)
-import qualified Test.QuickCheck as QC
+import           Test.QuickCheck (property)
 
 import           Test.Hspec.Core.Util (Path)
 import           Test.Hspec.Core.Spec
@@ -41,8 +44,11 @@ import           Test.Hspec.Core.Formatters
 import           Test.Hspec.Core.Formatters.Internal
 import           Test.Hspec.Core.FailureReport
 import           Test.Hspec.Core.QuickCheckUtil
+import           Test.Hspec.Core.Example.Options
 
 import           Test.Hspec.Core.Runner.Eval
+
+import           Data.Typeable
 
 -- | Filter specs by given predicate.
 --
@@ -90,11 +96,14 @@ hspec = hspecWith defaultConfig
 -- Add a seed to given config if there is none.  That way the same seed is used
 -- for all properties.  This helps with --seed and --rerun.
 ensureSeed :: Config -> IO Config
-ensureSeed c = case configQuickCheckSeed c of
+ensureSeed c = case qSeed qcopts of
   Nothing -> do
     seed <- newSeed
-    return c {configQuickCheckSeed = Just (fromIntegral seed)}
-  _       -> return c
+    return c {configOptions = setOptions qcopts {qSeed = Just seed} options}
+  Just _ -> return c
+  where
+    qcopts = getOptions options
+    options = configOptions c
 
 -- | Run given spec with custom options.
 -- This is similar to `hspec`, but more flexible.
@@ -114,6 +123,11 @@ isSuccess summary = summaryFailures summary == 0
 hspecResult :: Spec -> IO Summary
 hspecResult = hspecWithResult defaultConfig
 
+extractCustomOptions :: [SpecTree a] -> [OptionsParser OptionsSet]
+extractCustomOptions = catMaybes . Map.elems . Map.fromList . (qc :) . map itemOptions . concatMap toList
+  where
+    qc = customOptions (property True)
+
 -- | Run given spec with custom options and returns a summary of the test run.
 --
 -- /Note/: `hspecWithResult` does not exit with `exitFailure` on failing spec
@@ -123,7 +137,10 @@ hspecWithResult :: Config -> Spec -> IO Summary
 hspecWithResult config spec = do
   prog <- getProgName
   args <- getArgs
-  (oldFailureReport, c_) <- getConfig config prog args
+
+  specTree <- runSpecM spec -- FIXME XXXXXXXXXXXXXXXXXXXXXXXXXX we are running runSpecM IO multiple times...
+
+  (oldFailureReport, c_) <- getConfig (extractCustomOptions specTree) config prog args
   c <- ensureSeed c_
   if configRerunAllOnSuccess c
     -- With --rerun-all we may run the spec twice. For that reason GHC can not
@@ -171,8 +188,8 @@ runSpec :: Config -> Spec -> IO Summary
 runSpec config spec = do
   doNotLeakCommandLineArgumentsToExamples $ withHandle config $ \h -> do
     let formatter = fromMaybe specdoc (configFormatter config)
-        seed = (fromJust . configQuickCheckSeed) config
-        qcArgs = configQuickCheckArgs config
+        qopts = getOptions (configOptions config)
+        seed = qqSeed qopts
 
     concurrentJobs <- case configConcurrentJobs config of
       Nothing -> getDefaultConcurrentJobs
@@ -182,9 +199,9 @@ runSpec config spec = do
 
     let
       focusedSpec = focusSpec config (failFocusedItems config spec)
-      params = Params (configQuickCheckArgs config) (configSmallCheckDepth config)
+      opts = configOptions config
 
-    filteredSpec <- filterSpecs config . mapMaybe (toEvalTree params) . applyDryRun config <$> runSpecM focusedSpec
+    filteredSpec <- filterSpecs config . mapMaybe (toEvalTree opts) . applyDryRun config <$> runSpecM focusedSpec
 
     (total, failures) <- withHiddenCursor useColor h $ do
       let
@@ -194,7 +211,7 @@ runSpec config spec = do
         , formatConfigUseDiff = configDiff config
         , formatConfigHtmlOutput = configHtmlOutput config
         , formatConfigPrintCpuTime = configPrintCpuTime config
-        , formatConfigUsedSeed =  seed
+        , formatConfigUsedSeed = fromIntegral seed
         }
         evalConfig = EvalConfig {
           evalConfigFormat = formatterToFormat formatter formatConfig
@@ -203,26 +220,26 @@ runSpec config spec = do
         }
       runFormatter evalConfig filteredSpec
 
-    dumpFailureReport config seed qcArgs failures
+    dumpFailureReport config qopts failures
     return (Summary total (length failures))
 
-toEvalTree :: Params -> SpecTree () -> Maybe EvalTree
-toEvalTree params = go
+toEvalTree :: OptionsSet -> SpecTree () -> Maybe EvalTree
+toEvalTree opts = go
   where
     go :: Tree (() -> c) (Item ()) -> Maybe (Tree c EvalItem)
     go t = case t of
       Node s xs -> Just $ Node s (mapMaybe go xs)
       NodeWithCleanup c xs -> Just $ NodeWithCleanup (c ()) (mapMaybe go xs)
-      Leaf (Item requirement loc isParallelizable isFocused e) ->
-        guard isFocused >> return (Leaf (EvalItem requirement loc (fromMaybe False isParallelizable) (e params $ ($ ()))))
+      Leaf (Item requirement loc isParallelizable isFocused _ e) ->
+        guard isFocused >> return (Leaf (EvalItem requirement loc (fromMaybe False isParallelizable) (e opts $ ($ ()))))
 
-dumpFailureReport :: Config -> Integer -> QC.Args -> [Path] -> IO ()
-dumpFailureReport config seed qcArgs xs = do
+dumpFailureReport :: Config -> QuickCheckOptions -> [Path] -> IO ()
+dumpFailureReport config qopts xs = do
   writeFailureReport config FailureReport {
-      failureReportSeed = seed
-    , failureReportMaxSuccess = QC.maxSuccess qcArgs
-    , failureReportMaxSize = QC.maxSize qcArgs
-    , failureReportMaxDiscardRatio = QC.maxDiscardRatio qcArgs
+      failureReportSeed = qqSeed qopts
+    , failureReportMaxSuccess = qqMaxSuccess qopts
+    , failureReportMaxSize = qqMaxSize qopts
+    , failureReportMaxDiscardRatio = qqMaxDiscardRatio qopts
     , failureReportPaths = xs
     }
 

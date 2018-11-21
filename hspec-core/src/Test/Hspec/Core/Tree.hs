@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Stability: unstable
@@ -14,6 +15,8 @@ module Test.Hspec.Core.Tree (
 , specItem
 , bimapTree
 , location
+
+, customOptions
 ) where
 
 import           Prelude ()
@@ -21,8 +24,10 @@ import           Test.Hspec.Core.Compat
 
 import           Data.CallStack
 import           Data.Maybe
+import           Data.Typeable
 
 import           Test.Hspec.Core.Example
+import           Test.Hspec.Core.Example.Options
 
 -- | Internal tree data structure
 data Tree c a =
@@ -65,11 +70,14 @@ data Item a = Item {
   -- parallel with other spec items
 , itemIsParallelizable :: Maybe Bool
 
-  -- | A flag that indicates whether this spec item is focused.
+  -- | A flag that indicates whether this spec item is focused
 , itemIsFocused :: Bool
 
+  -- | A parser for custome options that are accepted by this spec item
+, itemOptions :: (TypeRep, Maybe (OptionsParser OptionsSet))
+
   -- | Example for behavior
-, itemExample :: Params -> (ActionWith a -> IO ()) -> ProgressCallback -> IO Result
+, itemExample :: OptionsSet -> (ActionWith a -> IO ()) -> ProgressCallback -> IO Result
 }
 
 -- | The @specGroup@ function combines a list of specs into a larger spec.
@@ -81,9 +89,26 @@ specGroup s = Node msg
       | null s = fromMaybe "(no description given)" defaultDescription
       | otherwise = s
 
+optionsParserFromType :: forall a. Options a => (TypeRep, Maybe (OptionsParser a))
+optionsParserFromType = (typeOf (undefined :: a), optionsParser)
+
+optionsParserFromExample :: Example a => a -> (TypeRep, Maybe (OptionsParser (Opt a)))
+optionsParserFromExample _ = optionsParserFromType
+
+customOptions:: Example a => a -> (TypeRep, Maybe (OptionsParser OptionsSet))
+customOptions = fmap (fmap toCustomOptions) . optionsParserFromExample
+  where
+
 -- | The @specItem@ function creates a spec item.
 specItem :: (HasCallStack, Example a) => String -> a -> SpecTree (Arg a)
-specItem s e = Leaf $ Item requirement location Nothing False (safeEvaluateExample e)
+specItem s e = Leaf $ Item {
+    itemRequirement = requirement
+  , itemLocation = location
+  , itemIsParallelizable = Nothing
+  , itemIsFocused = False
+  , itemOptions = customOptions e
+  , itemExample = safeEvaluateExample e
+  }
   where
     requirement :: HasCallStack => String
     requirement

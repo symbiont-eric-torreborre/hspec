@@ -3,10 +3,12 @@ module Test.Hspec.Core.Config.OptionsSpec (spec) where
 import           Prelude ()
 import           Helper
 
+import           Data.Maybe
 import           System.Exit
 
 import qualified Test.Hspec.Core.Config.Options as Options
 import           Test.Hspec.Core.Config.Options hiding (parseOptions)
+import           Test.Hspec.Core.Tree (customOptions)
 
 fromLeft :: Either a b -> a
 fromLeft (Left a) = a
@@ -16,7 +18,9 @@ spec :: Spec
 spec = do
   describe "parseOptions" $ do
 
-    let parseOptions = Options.parseOptions defaultConfig "my-spec"
+    let 
+      foo = maybeToList . snd $ customOptions (property True)
+      parseOptions = Options.parseOptions foo defaultConfig "my-spec"
 
     it "rejects unexpected arguments" $ do
       fromLeft (parseOptions [] Nothing ["foo"]) `shouldBe` (ExitFailure 1, "my-spec: unexpected argument `foo'\nTry `my-spec --help' for more information.\n")

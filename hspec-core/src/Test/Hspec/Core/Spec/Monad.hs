@@ -22,6 +22,8 @@ import           Control.Monad.IO.Class (liftIO)
 import           Test.Hspec.Core.Example
 import           Test.Hspec.Core.Tree
 
+import           Test.Hspec.Core.Example.Options
+
 type Spec = SpecWith ()
 
 type SpecWith a = SpecM a ()
@@ -58,5 +60,5 @@ mapSpecItem g f = mapSpecTree (bimapTree g f)
 mapSpecItem_ :: (Item a -> Item a) -> SpecWith a -> SpecWith a
 mapSpecItem_ = mapSpecItem id
 
-modifyParams :: (Params -> Params) -> SpecWith a -> SpecWith a
-modifyParams f = mapSpecItem_ $ \item -> item {itemExample = \p -> (itemExample item) (f p)}
+modifyParams :: (QuickCheckOptions -> QuickCheckOptions) -> SpecWith a -> SpecWith a
+modifyParams f = mapSpecItem_ $ \item -> item {itemExample = \ p -> (itemExample item) (modifyOptions f $ p)}

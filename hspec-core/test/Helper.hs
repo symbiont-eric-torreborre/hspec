@@ -8,7 +8,6 @@ module Helper (
 , module System.IO.Silently
 , sleep
 , timeout
-, defaultParams
 , noOpProgressCallback
 , captureLines
 , normalizeSummary
@@ -45,9 +44,10 @@ import           Test.QuickCheck hiding (Result(..))
 
 import qualified Test.Hspec.Core.Spec as H
 import qualified Test.Hspec.Core.Runner as H
+import           Test.Hspec.Core.Example.Options
 import           Test.Hspec.Core.QuickCheckUtil (mkGen)
 import           Test.Hspec.Core.Clock
-import           Test.Hspec.Core.Example(Result(..), ResultStatus(..), FailureReason(..))
+import           Test.Hspec.Core.Example(Result(..), ResultStatus(..), FailureReason(..), toQuickCheckArgs)
 
 #if !MIN_VERSION_base(4,7,0)
 deriving instance Eq ErrorCall
@@ -87,9 +87,6 @@ normalizeSummary = map f
     g x | isNumber x = '0'
         | otherwise  = x
 
-defaultParams :: H.Params
-defaultParams = H.defaultParams {H.paramsQuickCheckArgs = stdArgs {replay = Just (mkGen 23, 0), maxSuccess = 1000}}
-
 noOpProgressCallback :: H.ProgressCallback
 noOpProgressCallback _ = return ()
 
@@ -98,8 +95,8 @@ timeout = System.timeout . toMicroseconds
 
 shouldUseArgs :: [String] -> (Args -> Bool) -> Expectation
 shouldUseArgs args p = do
-  spy <- newIORef (H.paramsQuickCheckArgs defaultParams)
-  let interceptArgs item = item {H.itemExample = \params action progressCallback -> writeIORef spy (H.paramsQuickCheckArgs params) >> H.itemExample item params action progressCallback}
+  spy <- newIORef stdArgs
+  let interceptArgs item = item {H.itemExample = \params action progressCallback -> writeIORef spy (toQuickCheckArgs $ getOptions params) >> H.itemExample item params action progressCallback}
       spec = H.mapSpecItem_ interceptArgs $
         H.it "foo" False
   (silence . ignoreExitCode . withArgs args . H.hspec) spec

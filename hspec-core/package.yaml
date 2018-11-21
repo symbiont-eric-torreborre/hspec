@@ -33,6 +33,7 @@ dependencies:
   - call-stack
   - directory
   - filepath
+  - containers
 
   - stm >= 2.2 # for asyc
   - array # for Diff

@@ -23,6 +23,10 @@ import           Test.Hspec.Core.Example (Params(..), defaultParams)
 import           Data.Functor.Identity
 import           Data.Maybe
 
+import           Test.Hspec.Core.Example.Options hiding (Flag(..), setMaxSuccess, setMaxSize, setMaxDiscardRatio)
+import qualified Test.Hspec.Core.Example.Options as E
+import           Test.QuickCheck (Args)
+
 type ConfigFile = (FilePath, [String])
 
 type EnvVar = [String]
@@ -46,17 +50,16 @@ data Config = Config {
 -- that satisfy the predicate are run.
 , configFilterPredicate :: Maybe (Path -> Bool)
 , configSkipPredicate :: Maybe (Path -> Bool)
-, configQuickCheckSeed :: Maybe Integer
-, configQuickCheckMaxSuccess :: Maybe Int
-, configQuickCheckMaxDiscardRatio :: Maybe Int
-, configQuickCheckMaxSize :: Maybe Int
-, configSmallCheckDepth :: Int
+, configQuickCheckMaxSuccess :: Maybe Int -- remove
+, configQuickCheckMaxSize :: Maybe Int -- remove
+, configSmallCheckDepth :: Int -- remove
 , configColorMode :: ColorMode
 , configDiff :: Bool
 , configFormatter :: Maybe Formatter
 , configHtmlOutput :: Bool
 , configOutputFile :: Either Handle FilePath
 , configConcurrentJobs :: Maybe Int
+, configOptions :: OptionsSet
 }
 
 defaultConfig :: Config
@@ -72,9 +75,7 @@ defaultConfig = Config {
 , configRerunAllOnSuccess = False
 , configFilterPredicate = Nothing
 , configSkipPredicate = Nothing
-, configQuickCheckSeed = Nothing
 , configQuickCheckMaxSuccess = Nothing
-, configQuickCheckMaxDiscardRatio = Nothing
 , configQuickCheckMaxSize = Nothing
 , configSmallCheckDepth = paramsSmallCheckDepth defaultParams
 , configColorMode = ColorAuto
@@ -83,6 +84,7 @@ defaultConfig = Config {
 , configHtmlOutput = False
 , configOutputFile = Left stdout
 , configConcurrentJobs = Nothing
+, configOptions = mempty
 }
 
 filterOr :: Maybe (Path -> Bool) -> Maybe (Path -> Bool) -> Maybe (Path -> Bool)
@@ -105,12 +107,6 @@ setMaxSuccess n c = c {configQuickCheckMaxSuccess = Just n}
 setMaxSize :: Int -> Config -> Config
 setMaxSize n c = c {configQuickCheckMaxSize = Just n}
 
-setMaxDiscardRatio :: Int -> Config -> Config
-setMaxDiscardRatio n c = c {configQuickCheckMaxDiscardRatio = Just n}
-
-setSeed :: Integer -> Config -> Config
-setSeed n c = c {configQuickCheckSeed = Just n}
-
 data ColorMode = ColorAuto | ColorNever | ColorAlways
   deriving (Eq, Show)
 
@@ -124,11 +120,16 @@ data Arg a = Arg {
 , _argumentSetter :: a -> Config -> Config
 }
 
-mkOption :: Monad m => [Char] -> String -> Arg a -> String -> OptDescr (Result m -> Result m)
-mkOption shortcut name (Arg argName parser setter) help = Option shortcut [name] (ReqArg arg argName) help
+mkOption :: (Traversable m, Monad m) => [Char] -> String -> Arg a -> String -> OptDescr (Result m -> Result m)
+mkOption shortcut name (Arg argName parser setter) = mkOption_ shortcut name argName p
   where
-    arg input x = x >>= \c -> case parser input of
-      Just n -> Right (setter n `liftM` c)
+    p input c = setter <$> parser input <*> pure c
+
+mkOption_ :: (Traversable m, Monad m) => [Char] -> String -> String -> (String -> Config -> Maybe Config) -> String -> OptDescr (Result m -> Result m)
+mkOption_ shortcut name argName parser = Option shortcut [name] (ReqArg arg argName)
+  where
+    arg input x = x >>= \ c -> case sequence $ parser input `liftM` c of
+      Just n -> Right n
       Nothing -> Left (InvalidArgument name input)
 
 mkFlag :: Monad m => String -> (Bool -> Config -> Config) -> String -> [OptDescr (Result m -> Result m)]
@@ -147,7 +148,7 @@ commandLineOptions = [
   where
     setIgnoreConfigFile = set $ \config -> config {configIgnoreConfigFile = True}
 
-formatterOptions :: Monad m => [OptDescr (Result m -> Result m)]
+formatterOptions :: (Traversable m, Monad m) => [OptDescr (Result m -> Result m)]
 formatterOptions = concat [
     [mkOption "f" "format" (Arg "FORMATTER" readFormatter setFormatter) helpForFormat]
   , mkFlag "color" setColor "colorize the output"
@@ -180,20 +181,15 @@ formatterOptions = concat [
 
     setPrintCpuTime = set $ \config -> config {configPrintCpuTime = True}
 
-smallCheckOptions :: Monad m => [OptDescr (Result m -> Result m)]
+smallCheckOptions :: (Traversable m, Monad m) => [OptDescr (Result m -> Result m)]
 smallCheckOptions = [
     mkOption [] "depth" (Arg "N" readMaybe setDepth) "maximum depth of generated test values for SmallCheck properties"
   ]
 
-quickCheckOptions :: Monad m => [OptDescr (Result m -> Result m)]
-quickCheckOptions = [
-    mkOption "a" "qc-max-success" (Arg "N" readMaybe setMaxSuccess) "maximum number of successful tests before a QuickCheck property succeeds"
-  , mkOption "" "qc-max-size" (Arg "N" readMaybe setMaxSize) "size to use for the biggest test cases"
-  , mkOption "" "qc-max-discard" (Arg "N" readMaybe setMaxDiscardRatio) "maximum number of discarded tests per successful test before giving up"
-  , mkOption [] "seed" (Arg "N" readMaybe setSeed) "used seed for QuickCheck properties"
-  ]
+setConfigOptions :: Config -> OptionsSet -> Config
+setConfigOptions c opts = c {configOptions = opts}
 
-runnerOptions :: Monad m => [OptDescr (Result m -> Result m)]
+runnerOptions :: (Traversable m, Monad m) => [OptDescr (Result m -> Result m)]
 runnerOptions = concat [
     mkFlag "dry-run" setDryRun "pretend that everything passed; don't verify anything"
   , mkFlag "focused-only" setFocusedOnly "do not run anything, unless there are focused spec items"
@@ -233,24 +229,23 @@ runnerOptions = concat [
     setRerun        = set $ \config -> config {configRerun = True}
     setRerunAllOnSuccess = set $ \config -> config {configRerunAllOnSuccess = True}
 
-documentedConfigFileOptions :: Monad m => [(String, [OptDescr (Result m -> Result m)])]
+documentedConfigFileOptions :: (Traversable m, Monad m) => [(String, [OptDescr (Result m -> Result m)])]
 documentedConfigFileOptions = [
     ("RUNNER OPTIONS", runnerOptions)
   , ("FORMATTER OPTIONS", formatterOptions)
-  , ("OPTIONS FOR QUICKCHECK", quickCheckOptions)
   , ("OPTIONS FOR SMALLCHECK", smallCheckOptions)
   ]
 
 documentedOptions :: [(String, [OptDescr (Result Maybe -> Result Maybe)])]
 documentedOptions = ("OPTIONS", commandLineOptions) : documentedConfigFileOptions
 
-configFileOptions :: Monad m => [OptDescr (Result m -> Result m)]
+configFileOptions :: (Traversable m, Monad m) => [OptDescr (Result m -> Result m)]
 configFileOptions = (concat . map snd) documentedConfigFileOptions
 
 set :: Monad m => (Config -> Config) -> Either a (m Config) -> Either a (m Config)
 set = liftM . liftM
 
-undocumentedOptions :: Monad m => [OptDescr (Result m -> Result m)]
+undocumentedOptions :: (Traversable m, Monad m) => [OptDescr (Result m -> Result m)]
 undocumentedOptions = [
     -- for compatibility with test-framework
     mkOption [] "maximum-generated-tests" (Arg "NUMBER" readMaybe setMaxSuccess) "how many automated tests something like QuickCheck should try, by default"
@@ -273,23 +268,37 @@ undocumentedOptions = [
 recognizedOptions :: [OptDescr (Result Maybe -> Result Maybe)]
 recognizedOptions = commandLineOptions ++ configFileOptions ++ undocumentedOptions
 
-parseOptions :: Config -> String -> [ConfigFile] -> Maybe EnvVar -> [String] -> Either (ExitCode, String) Config
-parseOptions config prog configFiles envVar args = do
+parseOptions :: [OptionsParser OptionsSet] -> Config -> String -> [ConfigFile] -> Maybe EnvVar -> [String] -> Either (ExitCode, String) Config
+parseOptions customOpts config prog configFiles envVar args = do
       foldM (parseFileOptions prog) config configFiles
   >>= parseEnvVarOptions prog envVar
-  >>= parseCommandLineOptions prog args
+  >>= parseCommandLineOptions customOpts prog args
 
-parseCommandLineOptions :: String -> [String] -> Config -> Either (ExitCode, String) Config
-parseCommandLineOptions prog args config = case parse recognizedOptions config args of
+parseCommandLineOptions :: [OptionsParser OptionsSet] -> String -> [String] -> Config -> Either (ExitCode, String) Config
+parseCommandLineOptions customOpts prog args config = case parse (recognizedOptions ++ concatMap snd xs) config args of
   Right Nothing -> Left (ExitSuccess, usage)
   Right (Just c) -> Right c
   Left err -> failure err
   where
+    xs :: [(String, [OptDescr (Result Maybe -> Result Maybe)])]
+    xs = map xoxo customOpts
+
+    xoxo :: OptionsParser OptionsSet -> (String, [OptDescr (Result Maybe -> Result Maybe)])
+    xoxo (OptionsParser title options) = (title, map (baz . bar) options)
+
     failure err = Left (ExitFailure 1, prog ++ ": " ++ err ++ "\nTry `" ++ prog ++ " --help' for more information.\n")
 
     usage :: String
     usage = "Usage: " ++ prog ++ " [OPTION]...\n\n"
-      ++ (intercalate "\n" $ map (uncurry mkUsageInfo) documentedOptions)
+      ++ (intercalate "\n" $ map (uncurry mkUsageInfo) $ documentedOptions ++ xs)
+
+baz :: (Traversable m, Monad m) => E.Flag Config -> OptDescr (Result m -> Result m)
+baz (E.Flag short name placeholder parser help) = mkOption_ (maybeToList short) name placeholder parser help
+
+bar :: E.Flag OptionsSet -> E.Flag Config
+bar opt = opt {E.optionParser = p}
+  where
+    p input c = setConfigOptions c <$> E.optionParser opt input (configOptions c)
 
 parseFileOptions :: String -> Config -> ConfigFile -> Either (ExitCode, String) Config
 parseFileOptions prog config (name, args) =

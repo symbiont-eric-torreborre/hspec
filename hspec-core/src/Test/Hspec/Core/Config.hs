@@ -5,7 +5,6 @@ module Test.Hspec.Core.Config (
 , defaultConfig
 , getConfig
 , configAddFilter
-, configQuickCheckArgs
 #ifdef TEST
 , readConfigFiles
 #endif
@@ -28,6 +27,10 @@ import           Test.Hspec.Core.Config.Options
 import           Test.Hspec.Core.FailureReport
 import           Test.Hspec.Core.QuickCheckUtil (mkGen)
 import           Test.Hspec.Core.Example (Params(..), defaultParams)
+import qualified Test.Hspec.Core.Example.Options as E
+import           Test.Hspec.Core.Example.Options (OptionsSet)
+import           Test.Hspec.Core.Example.Options
+import           Test.Hspec.Core.Example
 
 -- | Add a filter predicate to config.  If there is already a filter predicate,
 -- then combine them with `||`.
@@ -39,17 +42,24 @@ configAddFilter p1 c = c {
 mkConfig :: Maybe FailureReport -> Config -> Config
 mkConfig mFailureReport opts = opts {
     configFilterPredicate = matchFilter `filterOr` rerunFilter
-  , configQuickCheckSeed = mSeed
-  , configQuickCheckMaxSuccess = mMaxSuccess
-  , configQuickCheckMaxDiscardRatio = mMaxDiscardRatio
-  , configQuickCheckMaxSize = mMaxSize
+  , configOptions = setOptions foo options
   }
   where
+    options = configOptions opts
+    qopts :: QuickCheckOptions
+    qopts = getOptions options
 
-    mSeed = configQuickCheckSeed opts <|> (failureReportSeed <$> mFailureReport)
-    mMaxSuccess = configQuickCheckMaxSuccess opts <|> (failureReportMaxSuccess <$> mFailureReport)
-    mMaxSize = configQuickCheckMaxSize opts <|> (failureReportMaxSize <$> mFailureReport)
-    mMaxDiscardRatio = configQuickCheckMaxDiscardRatio opts <|> (failureReportMaxDiscardRatio <$> mFailureReport)
+    foo = qopts {
+      qMaxSuccess = mMaxSuccess
+    , qMaxSize = mMaxSize
+    , qMaxDiscardRatio = mMaxDiscardRatio
+    , qSeed = mSeed
+    }
+
+    mSeed = qSeed qopts <|> (failureReportSeed <$> mFailureReport)
+    mMaxSuccess = qMaxSuccess qopts <|> (failureReportMaxSuccess <$> mFailureReport)
+    mMaxSize = qMaxSize qopts <|> (failureReportMaxSize <$> mFailureReport)
+    mMaxDiscardRatio = qMaxDiscardRatio qopts <|> (failureReportMaxDiscardRatio <$> mFailureReport)
 
     matchFilter = configFilterPredicate opts
 
@@ -58,36 +68,15 @@ mkConfig mFailureReport opts = opts {
       Just xs -> Just (`elem` xs)
       Nothing -> Nothing
 
-configQuickCheckArgs :: Config -> QC.Args
-configQuickCheckArgs c = qcArgs
-  where
-    qcArgs = (
-        maybe id setSeed (configQuickCheckSeed c)
-      . maybe id setMaxDiscardRatio (configQuickCheckMaxDiscardRatio c)
-      . maybe id setMaxSize (configQuickCheckMaxSize c)
-      . maybe id setMaxSuccess (configQuickCheckMaxSuccess c)) (paramsQuickCheckArgs defaultParams)
-
-    setMaxSuccess :: Int -> QC.Args -> QC.Args
-    setMaxSuccess n args = args {QC.maxSuccess = n}
-
-    setMaxSize :: Int -> QC.Args -> QC.Args
-    setMaxSize n args = args {QC.maxSize = n}
-
-    setMaxDiscardRatio :: Int -> QC.Args -> QC.Args
-    setMaxDiscardRatio n args = args {QC.maxDiscardRatio = n}
-
-    setSeed :: Integer -> QC.Args -> QC.Args
-    setSeed n args = args {QC.replay = Just (mkGen (fromIntegral n), 0)}
-
-getConfig :: Config -> String -> [String] -> IO (Maybe FailureReport, Config)
-getConfig opts_ prog args = do
+getConfig :: [OptionsParser OptionsSet] -> Config -> String -> [String] -> IO (Maybe FailureReport, Config)
+getConfig customOpts opts_ prog args = do
   configFiles <- do
     ignore <- ignoreConfigFile opts_ args
     case ignore of
       True -> return []
       False -> readConfigFiles
   envVar <- fmap words <$> lookupEnv envVarName
-  case parseOptions opts_ prog configFiles envVar args of
+  case parseOptions customOpts opts_ prog configFiles envVar args of
     Left (err, msg) -> exitWithMessage err msg
     Right opts -> do
       r <- if configRerun opts then readFailureReport opts else return Nothing
