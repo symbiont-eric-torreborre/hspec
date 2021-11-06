@@ -106,7 +106,7 @@ newtype FormatM a = FormatM (StateT (IORef FormatterState) IO a)
 
 runFormatM :: FormatConfig -> FormatM a -> IO a
 runFormatM config (FormatM action) = do
-  time <- getMonotonicTime
+  time <- getTime
   cpuTime <- if (formatConfigPrintCpuTime config) then Just <$> CPUTime.getCPUTime else pure Nothing
   st <- newIORef (FormatterState 0 0 [] cpuTime time "" config)
   evalStateT action st
@@ -258,6 +258,6 @@ getCPUTime = do
 -- | Get the passed real time since the test run has been started.
 getRealTime :: FormatM Seconds
 getRealTime = do
-  t1 <- liftIO getMonotonicTime
+  t1 <- liftIO getTime
   t0 <- gets stateStartTime
   return (t1 - t0)

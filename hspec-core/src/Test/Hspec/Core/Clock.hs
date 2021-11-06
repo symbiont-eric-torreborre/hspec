@@ -3,7 +3,7 @@ module Test.Hspec.Core.Clock (
   Seconds(..)
 , toMilliseconds
 , toMicroseconds
-, getMonotonicTime
+, getTime
 , measure
 , sleep
 , timeout
@@ -13,7 +13,7 @@ import           Prelude ()
 import           Test.Hspec.Core.Compat
 
 import           Text.Printf
-import           System.Clock
+import           Data.Time.Clock.POSIX
 import           Control.Concurrent
 import qualified System.Timeout as System
 
@@ -26,16 +26,16 @@ toMilliseconds (Seconds s) = floor (s * 1000)
 toMicroseconds :: Seconds -> Int
 toMicroseconds (Seconds s) = floor (s * 1000000)
 
-getMonotonicTime :: IO Seconds
-getMonotonicTime = do
-  t <- getTime Monotonic
-  return $ Seconds ((fromIntegral . toNanoSecs $ t) / 1000000000)
+getTime :: IO Seconds
+getTime = do
+  t <- getPOSIXTime
+  return $ Seconds (realToFrac t)
 
 measure :: IO a -> IO (Seconds, a)
 measure action = do
-  t0 <- getMonotonicTime
+  t0 <- getTime
   a <- action
-  t1 <- getMonotonicTime
+  t1 <- getTime
   return (t1 - t0, a)
 
 sleep :: Seconds -> IO ()
