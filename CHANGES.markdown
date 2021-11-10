@@ -1,3 +1,6 @@
+## Changes in next
+  - Add support for custom configs to `hspec-discover` (via `SpecConfig.hs`)
+
 ## Changes in 2.9.5
   - Assume `--color` by default when running on GitHub Actions. Use
     `HSPEC_COLOR=no` or `--no-color` to opt out of this behavior.
