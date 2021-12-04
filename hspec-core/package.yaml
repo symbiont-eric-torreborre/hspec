@@ -74,6 +74,7 @@ library:
     - Test.Hspec.Core.Formatters.V2
     - Test.Hspec.Core.QuickCheck
     - Test.Hspec.Core.Util
+    - Test.Hspec.Core.Extension
 
 tests:
   spec:

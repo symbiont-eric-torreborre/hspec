@@ -85,7 +85,7 @@ mkSpecModule src conf nodes =
           False -> case config of
             WithConfig ->
                 showString "main :: IO ()\n"
-              . showString "main = SpecConfig.config defaultConfig >>= flip hspecWith spec\n"
+              . showString "main = hspecWithExtensions SpecConfig.config spec\n"
             WithoutConfig ->
                 showString "main :: IO ()\n"
               . showString "main = hspec spec\n"

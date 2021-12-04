@@ -72,6 +72,7 @@ library
       Test.Hspec.Core.Formatters.V2
       Test.Hspec.Core.QuickCheck
       Test.Hspec.Core.Util
+      Test.Hspec.Core.Extension
   other-modules:
       GetOpt.Declarative
       GetOpt.Declarative.Environment
@@ -164,6 +165,7 @@ test-suite spec
       Test.Hspec.Core.Config.Options
       Test.Hspec.Core.Example
       Test.Hspec.Core.Example.Location
+      Test.Hspec.Core.Extension
       Test.Hspec.Core.FailureReport
       Test.Hspec.Core.Format
       Test.Hspec.Core.Formatters
