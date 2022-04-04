@@ -156,6 +156,7 @@ data FormatterState = FormatterState {
 , stateStartTime       :: Seconds
 , stateConfig          :: FormatConfig
 , stateColor           :: Maybe SGR
+, stateTerminalSize    :: Maybe (Int, Int)
 }
 
 getConfig :: (FormatConfig -> a) -> FormatM a
@@ -178,16 +179,22 @@ runFormatM config (FormatM action) = withLineBuffering $ do
   time <- getMonotonicTime
   cpuTime <- if (formatConfigPrintCpuTime config) then Just <$> CPUTime.getCPUTime else pure Nothing
 
+  let progress = formatConfigReportProgress config && not (formatConfigHtmlOutput config)
+
+  size <- case progress of
+    True -> hGetTerminalSize stdout
+    False -> return Nothing
+
   let
-    progress = formatConfigReportProgress config && not (formatConfigHtmlOutput config)
     state = FormatterState {
       stateSuccessCount = 0
     , statePendingCount = 0
     , stateFailMessages = []
     , stateCpuStartTime = cpuTime
     , stateStartTime = time
-    , stateConfig = config { formatConfigReportProgress = progress }
+    , stateConfig = config
     , stateColor = Nothing
+    , stateTerminalSize = size
     }
   newIORef state >>= evalStateT action
 
@@ -226,12 +233,17 @@ getExpectedTotalCount = getConfig formatConfigExpectedTotalCount
 
 writeTransient :: String -> FormatM ()
 writeTransient new = do
-  reportProgress <- getConfig formatConfigReportProgress
-  when (reportProgress) $ do
+  mSize <- gets stateTerminalSize
+  forM_ mSize $ \ (_, width) -> do
     h <- getHandle
     write $ new
-    liftIO $ IO.hFlush h
-    write $ "\r" ++ replicate (length new) ' ' ++ "\r"
+    liftIO $ do
+      IO.hFlush h
+      replicateM_ (pred (length new) `div` width) $ do
+        hClearLine h
+        hCursorUpLine stdout 1
+      hClearLine h
+      IO.hPutStr stdout "\r"
 
 -- | Append some output to the report.
 write :: String -> FormatM ()
