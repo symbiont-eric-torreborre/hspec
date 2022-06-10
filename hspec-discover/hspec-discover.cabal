@@ -55,8 +55,6 @@ executable hspec-discover
     , directory
     , filepath
     , hspec-discover
-  other-modules:
-      Paths_hspec_discover
   default-language: Haskell2010
 
 test-suite spec
